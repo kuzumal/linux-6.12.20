@@ -592,7 +592,14 @@ restart:
 
 asmlinkage __visible void __softirq_entry __do_softirq(void)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 2) {
+		__this_cpu_write(cpu_thlet_stats.common_softirq_entry, rdtsc());
+		__this_cpu_write(cpu_thlet_stats.state, 3);
+	}
 	handle_softirqs(false);
+	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+		__this_cpu_write(cpu_thlet_stats.common_softirq_exit, rdtsc());
+	}
 }
 
 /**

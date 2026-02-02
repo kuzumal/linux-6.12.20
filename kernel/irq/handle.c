@@ -138,6 +138,10 @@ void __irq_wake_thread(struct irq_desc *desc, struct irqaction *action)
 
 irqreturn_t __handle_irq_event_percpu(struct irq_desc *desc)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 1) {
+		__this_cpu_write(cpu_thlet_stats.common_irq_entry, rdtsc());
+	}
+
 	irqreturn_t retval = IRQ_NONE;
 	unsigned int irq = desc->irq_data.irq;
 	struct irqaction *action;
@@ -182,8 +186,11 @@ irqreturn_t __handle_irq_event_percpu(struct irq_desc *desc)
 
 		retval |= res;
 	}
-
-	return retval;
+	if (__this_cpu_read(cpu_thlet_stats.state) == 1) {
+		__this_cpu_write(cpu_thlet_stats.common_irq_exit, rdtsc());
+		__this_cpu_write(cpu_thlet_stats.state, 2);
+	}
+		return retval;
 }
 
 irqreturn_t handle_irq_event_percpu(struct irq_desc *desc)

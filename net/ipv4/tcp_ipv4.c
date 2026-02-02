@@ -1965,6 +1965,8 @@ EXPORT_SYMBOL(tcp_v4_do_rcv);
 
 int tcp_v4_early_demux(struct sk_buff *skb)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4)
+		__this_cpu_write(cpu_thlet_stats.tcp_entry, rdtsc());
 	struct net *net = dev_net(skb->dev);
 	const struct iphdr *iph;
 	const struct tcphdr *th;
@@ -1999,6 +2001,8 @@ int tcp_v4_early_demux(struct sk_buff *skb)
 				skb_dst_set_noref(skb, dst);
 		}
 	}
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4)
+		__this_cpu_write(cpu_thlet_stats.tcp_exit, rdtsc());
 	return 0;
 }
 
@@ -2176,6 +2180,9 @@ static void tcp_v4_fill_cb(struct sk_buff *skb, const struct iphdr *iph,
 
 int tcp_v4_rcv(struct sk_buff *skb)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.tcp_entry, rdtsc());
+	}
 	struct net *net = dev_net(skb->dev);
 	enum skb_drop_reason drop_reason;
 	int sdif = inet_sdif(skb);
@@ -2301,6 +2308,9 @@ lookup:
 				goto discard_and_relse;
 			}
 			sock_put(sk);
+			if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+				__this_cpu_write(cpu_thlet_stats.tcp_exit, rdtsc());
+			}
 			return 0;
 		}
 	}
@@ -2358,6 +2368,9 @@ process:
 put_and_return:
 	if (refcounted)
 		sock_put(sk);
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.tcp_exit, rdtsc());
+	}
 
 	return ret;
 
@@ -2383,6 +2396,9 @@ discard_it:
 	SKB_DR_OR(drop_reason, NOT_SPECIFIED);
 	/* Discard frame. */
 	sk_skb_reason_drop(sk, skb, drop_reason);
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.tcp_exit, rdtsc());
+	}
 	return 0;
 
 discard_and_relse:

@@ -106,6 +106,7 @@
  *		fragmentation anyway.
  */
 
+#include "linux/sched.h"
 #define pr_fmt(fmt) "IPv4: " fmt
 
 #include <linux/module.h>
@@ -357,6 +358,9 @@ static int ip_rcv_finish_core(struct net *net, struct sock *sk,
 		}
 	}
 
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.net_skb3_entry, rdtsc());
+	}
 	/*
 	 *	Initialise the virtual path cache for the packet. It describes
 	 *	how the packet travels inside Linux networking.
@@ -364,13 +368,20 @@ static int ip_rcv_finish_core(struct net *net, struct sock *sk,
 	if (!skb_valid_dst(skb)) {
 		err = ip_route_input_noref(skb, iph->daddr, iph->saddr,
 					   iph->tos, dev);
-		if (unlikely(err))
+		if (unlikely(err)) {
+			if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+				__this_cpu_write(cpu_thlet_stats.net_skb3_exit, rdtsc());
+			}
 			goto drop_error;
+		}
 	} else {
 		struct in_device *in_dev = __in_dev_get_rcu(dev);
 
 		if (in_dev && IN_DEV_ORCONF(in_dev, NOPOLICY))
 			IPCB(skb)->flags |= IPSKB_NOPOLICY;
+	}
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.net_skb3_exit, rdtsc());
 	}
 
 #ifdef CONFIG_IP_ROUTE_CLASSID
@@ -455,6 +466,9 @@ static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
  */
 static struct sk_buff *ip_rcv_core(struct sk_buff *skb, struct net *net)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.net_skb2_entry, rdtsc());
+	}
 	const struct iphdr *iph;
 	int drop_reason;
 	u32 len;
@@ -539,6 +553,9 @@ static struct sk_buff *ip_rcv_core(struct sk_buff *skb, struct net *net)
 	if (!skb_sk_is_prefetched(skb))
 		skb_orphan(skb);
 
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.net_skb2_exit, rdtsc());
+	}
 	return skb;
 
 csum_error:
@@ -551,6 +568,9 @@ inhdr_error:
 drop:
 	kfree_skb_reason(skb, drop_reason);
 out:
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.net_skb2_exit, rdtsc());
+	}
 	return NULL;
 }
 
@@ -573,11 +593,17 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt,
 
 static void ip_sublist_rcv_finish(struct list_head *head)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.igb_intr_entry, rdtsc());
+	}
 	struct sk_buff *skb, *next;
 
 	list_for_each_entry_safe(skb, next, head, list) {
 		skb_list_del_init(skb);
 		dst_input(skb);
+	}
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.igb_intr_exit, rdtsc());
 	}
 }
 
@@ -642,6 +668,9 @@ static void ip_sublist_rcv(struct list_head *head, struct net_device *dev,
 void ip_list_rcv(struct list_head *head, struct packet_type *pt,
 		 struct net_device *orig_dev)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.net_skb1_entry, rdtsc());
+	}
 	struct net_device *curr_dev = NULL;
 	struct net *curr_net = NULL;
 	struct sk_buff *skb, *next;
@@ -670,4 +699,7 @@ void ip_list_rcv(struct list_head *head, struct packet_type *pt,
 	/* dispatch final sublist */
 	if (!list_empty(&sublist))
 		ip_sublist_rcv(&sublist, curr_dev, curr_net);
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.net_skb1_exit, rdtsc());
+	}
 }

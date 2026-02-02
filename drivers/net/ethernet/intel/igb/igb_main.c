@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright(c) 2007 - 2018 Intel Corporation. */
 
+#include "linux/sched.h"
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/module.h>
@@ -7067,13 +7068,14 @@ static void igb_write_itr(struct igb_q_vector *q_vector)
 
 static irqreturn_t igb_msix_ring(int irq, void *data)
 {
+	__this_cpu_write(cpu_thlet_stats.igb_intr_msi_entry, rdtsc());
 	struct igb_q_vector *q_vector = data;
 
 	/* Write the ITR value calculated from the previous interrupt. */
 	igb_write_itr(q_vector);
 
 	napi_schedule(&q_vector->napi);
-
+	__this_cpu_write(cpu_thlet_stats.igb_intr_msi_exit, rdtsc());
 	return IRQ_HANDLED;
 }
 
@@ -8088,6 +8090,8 @@ static void igb_set_uta(struct igb_adapter *adapter, bool set)
  **/
 static irqreturn_t igb_intr_msi(int irq, void *data)
 {
+	__this_cpu_write(cpu_thlet_stats.igb_intr_msi_entry, rdtsc());
+
 	struct igb_adapter *adapter = data;
 	struct igb_q_vector *q_vector = adapter->q_vector[0];
 	struct e1000_hw *hw = &adapter->hw;
@@ -8115,6 +8119,7 @@ static irqreturn_t igb_intr_msi(int irq, void *data)
 
 	napi_schedule(&q_vector->napi);
 
+	__this_cpu_write(cpu_thlet_stats.igb_intr_msi_exit, rdtsc());
 	return IRQ_HANDLED;
 }
 
@@ -8125,6 +8130,8 @@ static irqreturn_t igb_intr_msi(int irq, void *data)
  **/
 static irqreturn_t igb_intr(int irq, void *data)
 {
+	__this_cpu_write(cpu_thlet_stats.igb_intr_entry, rdtsc());
+
 	struct igb_adapter *adapter = data;
 	struct igb_q_vector *q_vector = adapter->q_vector[0];
 	struct e1000_hw *hw = &adapter->hw;
@@ -8161,6 +8168,7 @@ static irqreturn_t igb_intr(int irq, void *data)
 
 	napi_schedule(&q_vector->napi);
 
+	__this_cpu_write(cpu_thlet_stats.igb_intr_exit, rdtsc());
 	return IRQ_HANDLED;
 }
 
@@ -8192,6 +8200,10 @@ static void igb_ring_irq_enable(struct igb_q_vector *q_vector)
  **/
 static int igb_poll(struct napi_struct *napi, int budget)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 3) {
+		__this_cpu_write(cpu_thlet_stats.igb_softirq_entry, rdtsc());
+		__this_cpu_write(cpu_thlet_stats.state, 4);
+	}
 	struct igb_q_vector *q_vector = container_of(napi,
 						     struct igb_q_vector,
 						     napi);
@@ -8223,6 +8235,10 @@ static int igb_poll(struct napi_struct *napi, int budget)
 	if (likely(napi_complete_done(napi, work_done)))
 		igb_ring_irq_enable(q_vector);
 
+	if (__this_cpu_read(cpu_thlet_stats.state) == 5 || __this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.igb_softirq_exit, rdtsc());
+		__this_cpu_write(cpu_thlet_stats.state, 6);
+	}
 	return work_done;
 }
 

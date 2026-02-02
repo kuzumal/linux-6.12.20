@@ -7,6 +7,9 @@
  *  Copyright (C) 1991-2002  Linus Torvalds
  *  Copyright (C) 1998-2024  Ingo Molnar, Red Hat
  */
+#include "asm/msr.h"
+#include "linux/percpu-defs.h"
+#include "linux/sched.h"
 #include <linux/highmem.h>
 #include <linux/hrtimer_api.h>
 #include <linux/ktime_api.h>
@@ -118,6 +121,11 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(sched_update_nr_running_tp);
 EXPORT_TRACEPOINT_SYMBOL_GPL(sched_compute_energy_tp);
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
+
+DEFINE_PER_CPU_SHARED_ALIGNED(struct thlet_stats, cpu_thlet_stats);
+EXPORT_PER_CPU_SYMBOL(cpu_thlet_stats);
+DEFINE_PER_CPU_SHARED_ALIGNED(struct thlet_stats_summary, cpu_thlet_stats_summary);
+EXPORT_PER_CPU_SYMBOL(cpu_thlet_stats_summary);
 
 #ifdef CONFIG_SCHED_DEBUG
 /*
@@ -5241,6 +5249,94 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 		put_task_struct_rcu_user(prev);
 	}
 
+	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+		__this_cpu_write(cpu_thlet_stats.cs_exit, rdtsc());
+
+		struct thlet_stats stats;
+		stats.state = __this_cpu_read(cpu_thlet_stats.state);
+		stats.common_irq_entry = __this_cpu_read(cpu_thlet_stats.common_irq_entry);
+		stats.common_irq_exit = __this_cpu_read(cpu_thlet_stats.common_irq_exit);
+		stats.igb_intr_entry = __this_cpu_read(cpu_thlet_stats.igb_intr_entry);
+		stats.igb_intr_exit = __this_cpu_read(cpu_thlet_stats.igb_intr_exit);
+		stats.igb_intr_msi_entry = __this_cpu_read(cpu_thlet_stats.igb_intr_msi_entry);
+		stats.igb_intr_msi_exit = __this_cpu_read(cpu_thlet_stats.igb_intr_msi_exit);
+		stats.common_softirq_entry = __this_cpu_read(cpu_thlet_stats.common_softirq_entry);
+		stats.common_softirq_exit = __this_cpu_read(cpu_thlet_stats.common_softirq_exit);
+		stats.tcp_entry = __this_cpu_read(cpu_thlet_stats.tcp_entry);
+		stats.tcp_exit = __this_cpu_read(cpu_thlet_stats.tcp_exit);
+		stats.udp_entry = __this_cpu_read(cpu_thlet_stats.udp_entry);
+		stats.udp_exit = __this_cpu_read(cpu_thlet_stats.udp_exit);
+		stats.net_skb1_entry = __this_cpu_read(cpu_thlet_stats.net_skb1_entry);
+		stats.net_skb1_exit = __this_cpu_read(cpu_thlet_stats.net_skb1_exit);
+		stats.net_skb2_entry = __this_cpu_read(cpu_thlet_stats.net_skb2_entry);
+		stats.net_skb2_exit = __this_cpu_read(cpu_thlet_stats.net_skb2_exit);
+		stats.net_skb3_entry = __this_cpu_read(cpu_thlet_stats.net_skb3_entry);
+		stats.net_skb3_exit = __this_cpu_read(cpu_thlet_stats.net_skb3_exit);
+		stats.igb_softirq_entry = __this_cpu_read(cpu_thlet_stats.igb_softirq_entry);
+		stats.igb_softirq_exit = __this_cpu_read(cpu_thlet_stats.igb_softirq_exit);
+		stats.sched_entry = __this_cpu_read(cpu_thlet_stats.sched_entry);
+		stats.pick_entry = __this_cpu_read(cpu_thlet_stats.pick_entry);
+		stats.pick_exit = __this_cpu_read(cpu_thlet_stats.pick_exit);
+		stats.cs_entry = __this_cpu_read(cpu_thlet_stats.cs_entry);
+		stats.cs_mm = __this_cpu_read(cpu_thlet_stats.cs_mm);
+		stats.cs_reg = __this_cpu_read(cpu_thlet_stats.cs_reg);
+		stats.cs_exit = __this_cpu_read(cpu_thlet_stats.cs_exit);
+
+		uint64_t save = __this_cpu_read(cpu_thlet_stats_summary.save);
+		/* submit stats */
+		__this_cpu_add(cpu_thlet_stats_summary.count, 1);
+		__this_cpu_add(cpu_thlet_stats_summary.common_irq, stats.common_irq_exit - stats.common_irq_entry);
+		__this_cpu_add(cpu_thlet_stats_summary.igb_intr, stats.igb_intr_exit - stats.igb_intr_entry);
+		__this_cpu_add(cpu_thlet_stats_summary.igb_intr_msi, stats.igb_intr_msi_exit - stats.igb_intr_msi_entry);
+		__this_cpu_add(cpu_thlet_stats_summary.cirq2softirq, stats.common_softirq_entry - stats.common_irq_exit);
+		__this_cpu_add(cpu_thlet_stats_summary.iirq2softirq, stats.common_softirq_entry - stats.igb_intr_exit);
+		__this_cpu_add(cpu_thlet_stats_summary.cirq2isoftirq, stats.igb_softirq_entry - stats.common_irq_exit);
+		__this_cpu_add(cpu_thlet_stats_summary.iirq2isoftirq, stats.igb_softirq_entry - stats.igb_intr_exit);
+		__this_cpu_add(cpu_thlet_stats_summary.softirq, stats.common_softirq_exit - stats.common_softirq_entry);
+		__this_cpu_add(cpu_thlet_stats_summary.igb_softirq, stats.igb_softirq_exit - stats.igb_softirq_entry);
+		__this_cpu_add(cpu_thlet_stats_summary.softirq2sched, stats.sched_entry - stats.common_softirq_exit);
+		__this_cpu_add(cpu_thlet_stats_summary.isoftirq2sched, stats.sched_entry - stats.igb_softirq_exit);
+		__this_cpu_add(cpu_thlet_stats_summary.sched_pre, stats.pick_entry - stats.sched_entry);
+		__this_cpu_add(cpu_thlet_stats_summary.sched_pick, stats.pick_exit - stats.pick_entry);
+		__this_cpu_add(cpu_thlet_stats_summary.sched_wakeup, stats.cs_entry - stats.pick_exit);
+		__this_cpu_add(cpu_thlet_stats_summary.cs_pre, stats.cs_mm - stats.cs_entry);
+		__this_cpu_add(cpu_thlet_stats_summary.cs_mm, stats.cs_reg - stats.cs_mm);
+		__this_cpu_add(cpu_thlet_stats_summary.cs_reg, stats.cs_exit - stats.cs_reg);
+
+		if (save >= 30) save = 0;
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].state, stats.state);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].common_irq_entry, stats.common_irq_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].common_irq_exit, stats.common_irq_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].igb_intr_entry, stats.igb_intr_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].igb_intr_exit, stats.igb_intr_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].igb_intr_msi_entry, stats.igb_intr_msi_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].igb_intr_msi_exit, stats.igb_intr_msi_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].common_softirq_entry, stats.common_softirq_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].common_softirq_exit, stats.common_softirq_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].tcp_entry, stats.tcp_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].tcp_exit, stats.tcp_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].udp_entry, stats.udp_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].udp_exit, stats.udp_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].net_skb1_entry, stats.net_skb1_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].net_skb1_exit, stats.net_skb1_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].net_skb2_entry, stats.net_skb2_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].net_skb2_exit, stats.net_skb2_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].net_skb3_entry, stats.net_skb3_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].net_skb3_exit, stats.net_skb3_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].igb_softirq_entry, stats.igb_softirq_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].igb_softirq_exit, stats.igb_softirq_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].sched_entry, stats.sched_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].pick_entry, stats.pick_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].pick_exit, stats.pick_exit);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].cs_entry, stats.cs_entry);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].cs_mm, stats.cs_mm);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].cs_reg, stats.cs_reg);
+		__this_cpu_write(cpu_thlet_stats_summary.pre[save].cs_exit, stats.cs_exit);
+		save ++;
+		__this_cpu_write(cpu_thlet_stats_summary.save, save);
+
+		__this_cpu_write(cpu_thlet_stats.state, 0);
+	}
 	return rq;
 }
 
@@ -5276,6 +5372,9 @@ static __always_inline struct rq *
 context_switch(struct rq *rq, struct task_struct *prev,
 	       struct task_struct *next, struct rq_flags *rf)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+		__this_cpu_write(cpu_thlet_stats.cs_entry, rdtsc());
+	}
 	prepare_task_switch(rq, prev, next);
 
 	/*
@@ -5295,6 +5394,9 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 * switch_mm_cid() needs to be updated if the barriers provided
 	 * by context_switch() are modified.
 	 */
+	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+		__this_cpu_write(cpu_thlet_stats.cs_mm, rdtsc());
+	}
 	if (!next->mm) {                                // to kernel
 		enter_lazy_tlb(prev->active_mm, next);
 
@@ -5328,6 +5430,9 @@ context_switch(struct rq *rq, struct task_struct *prev,
 
 	prepare_lock_switch(rq, next, rf);
 
+	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+		__this_cpu_write(cpu_thlet_stats.cs_reg, rdtsc());
+	}
 	/* Here we just switch the register state and the stack. */
 	switch_to(prev, next, prev);
 	barrier();
@@ -6590,6 +6695,9 @@ static bool try_to_block_task(struct rq *rq, struct task_struct *p,
  */
 static void __sched notrace __schedule(int sched_mode)
 {
+	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+		__this_cpu_write(cpu_thlet_stats.sched_entry, rdtsc());
+	}
 	struct task_struct *prev, *next;
 	/*
 	 * On PREEMPT_RT kernel, SM_RTLOCK_WAIT is noted
@@ -6649,6 +6757,9 @@ static void __sched notrace __schedule(int sched_mode)
 	 * that we form a control dependency vs deactivate_task() below.
 	 */
 	prev_state = READ_ONCE(prev->__state);
+	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+		__this_cpu_write(cpu_thlet_stats.pick_entry, rdtsc());
+	}
 	if (sched_mode == SM_IDLE) {
 		/* SCX must consult the BPF scheduler to tell if rq is empty */
 		if (!rq->nr_running && !scx_enabled()) {
@@ -6662,6 +6773,9 @@ static void __sched notrace __schedule(int sched_mode)
 
 	next = pick_next_task(rq, prev, &rf);
 picked:
+	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+		__this_cpu_write(cpu_thlet_stats.pick_exit, rdtsc());
+	}
 	clear_tsk_need_resched(prev);
 	clear_preempt_need_resched();
 #ifdef CONFIG_SCHED_DEBUG

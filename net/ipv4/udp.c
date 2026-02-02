@@ -72,6 +72,7 @@
  *	James Chapman		:	Add L2TP encapsulation type.
  */
 
+#include "linux/sched.h"
 #define pr_fmt(fmt) "UDP: " fmt
 
 #include <linux/bpf-cgroup.h>
@@ -1569,6 +1570,7 @@ static int udp_rmem_schedule(struct sock *sk, int size)
 
 int __udp_enqueue_schedule_skb(struct sock *sk, struct sk_buff *skb)
 {
+	// __this_cpu_write(cpu_thlet_stats.udp_entry, rdtsc());
 	struct sk_buff_head *list = &sk->sk_receive_queue;
 	int rmem, err = -ENOMEM;
 	spinlock_t *busy = NULL;
@@ -1619,6 +1621,7 @@ int __udp_enqueue_schedule_skb(struct sock *sk, struct sk_buff *skb)
 		INDIRECT_CALL_1(sk->sk_data_ready, sock_def_readable, sk);
 
 	busylock_release(busy);
+	// __this_cpu_write(cpu_thlet_stats.udp_exit, rdtsc());
 	return 0;
 
 uncharge_drop:
@@ -1627,6 +1630,7 @@ uncharge_drop:
 drop:
 	atomic_inc(&sk->sk_drops);
 	busylock_release(busy);
+	// __this_cpu_write(cpu_thlet_stats.udp_exit, rdtsc());
 	return err;
 }
 EXPORT_SYMBOL_GPL(__udp_enqueue_schedule_skb);
@@ -2677,7 +2681,13 @@ int udp_v4_early_demux(struct sk_buff *skb)
 
 int udp_rcv(struct sk_buff *skb)
 {
-	return __udp4_lib_rcv(skb, dev_net(skb->dev)->ipv4.udp_table, IPPROTO_UDP);
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4) {
+		__this_cpu_write(cpu_thlet_stats.udp_entry, rdtsc());
+	}
+	int ret = __udp4_lib_rcv(skb, dev_net(skb->dev)->ipv4.udp_table, IPPROTO_UDP);
+	if (__this_cpu_read(cpu_thlet_stats.state) == 4)
+		__this_cpu_write(cpu_thlet_stats.udp_exit, rdtsc());
+	return ret;
 }
 
 void udp_destroy_sock(struct sock *sk)

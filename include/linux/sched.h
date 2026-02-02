@@ -82,6 +82,70 @@ struct task_group;
 struct task_struct;
 struct user_event_mm;
 
+struct thlet_stats {
+	uint64_t state;
+	uint64_t common_irq_entry;
+	uint64_t common_irq_exit;
+	uint64_t igb_intr_entry;
+	uint64_t igb_intr_exit;
+	uint64_t igb_intr_msi_entry;
+	uint64_t igb_intr_msi_exit;
+	uint64_t common_softirq_entry;
+	uint64_t common_softirq_exit;
+	uint64_t tcp_entry;
+	uint64_t tcp_exit;
+	uint64_t udp_entry;
+	uint64_t udp_exit;
+	uint64_t net_skb1_entry;
+	uint64_t net_skb1_exit;
+	uint64_t net_skb2_entry;
+	uint64_t net_skb2_exit;
+	uint64_t net_skb3_entry;
+	uint64_t net_skb3_exit;
+	uint64_t igb_softirq_entry;
+	uint64_t igb_softirq_exit;
+	uint64_t sched_entry;
+	uint64_t pick_entry;
+	uint64_t pick_exit;
+	uint64_t cs_entry;
+	uint64_t cs_mm;
+	uint64_t cs_reg;
+	uint64_t cs_exit;
+};
+
+struct thlet_stats_summary {
+	uint64_t count;
+	uint64_t common_irq;
+	uint64_t igb_intr;
+	uint64_t igb_intr_msi;
+	uint64_t cirq2softirq;
+	uint64_t iirq2softirq;
+	uint64_t cirq2isoftirq;
+	uint64_t iirq2isoftirq;
+	uint64_t softirq;
+	uint64_t igb_softirq;
+	uint64_t udp;
+	uint64_t tcp;
+	uint64_t igb2net1;
+	uint64_t igb2net2;
+	uint64_t igb2net3;
+	uint64_t igb2tcp;
+	uint64_t igb2udp;
+	uint64_t softirq2sched;
+	uint64_t isoftirq2sched;
+	uint64_t sched_pre;
+	uint64_t sched_pick;
+	uint64_t sched_wakeup;
+	uint64_t cs_pre;
+	uint64_t cs_mm;
+	uint64_t cs_reg;
+	uint64_t save;
+	struct thlet_stats pre[30];
+};
+
+DECLARE_PER_CPU(struct thlet_stats, cpu_thlet_stats);
+DECLARE_PER_CPU(struct thlet_stats_summary, cpu_thlet_stats_summary);
+
 #include <linux/sched/ext.h>
 
 /*
