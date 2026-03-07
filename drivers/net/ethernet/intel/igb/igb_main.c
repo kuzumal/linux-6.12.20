@@ -51,6 +51,17 @@ enum tx_queue_prio {
 	TX_QUEUE_PRIO_LOW,
 };
 
+#define KEY_SIZE 10
+#define VALUE_SIZE 100
+
+typedef struct __attribute__((packed)) {
+	uint64_t magic;
+	uint64_t timestamp;
+	uint32_t type;
+	char key[KEY_SIZE];
+	char value[VALUE_SIZE];
+} Rpc;
+
 char igb_driver_name[] = "igb";
 static const char igb_driver_string[] =
 				"Intel(R) Gigabit Ethernet Network Driver";
@@ -8886,6 +8897,47 @@ static void igb_put_rx_buffer(struct igb_ring *rx_ring,
 	rx_buffer->page = NULL;
 }
 
+static void igb_print_dump_skb(int cpu, struct sk_buff *skb, struct net_device *dev){	
+	int i = 0;
+ 
+	if(!skb || !dev){
+		pr_err("%s: bad param\n", __FUNCTION__);
+		goto out;
+	}
+	
+	netdev_printk(KERN_INFO, dev, "Core #%d receive packets(data_len = %d): \n", cpu, skb->len);
+	for (i = 0; i < skb->len; i += 8) {
+		printk(" %02x%02x %02x%02x %02x%02x %02x%02x\n", 
+			*(skb->data + i)    , *(skb->data + i + 1), *(skb->data + i + 2), *(skb->data + i + 3), 
+			*(skb->data + i + 4), *(skb->data + i + 5), *(skb->data + i + 6), *(skb->data + i + 7));
+	}
+	printk("\n");
+ 
+out:
+	return;
+}
+
+void handle_rpc_timestamp(struct sk_buff *skb) {
+	struct iphdr *iph = (struct iphdr *)skb->data;
+	
+	if (iph->version == 4 && iph->protocol == IPPROTO_UDP) {
+		struct udphdr *udph = (struct udphdr *)(skb->data + (iph->ihl * 4));
+		
+		unsigned char *payload = (unsigned char *)udph + sizeof(struct udphdr);
+		uint32_t payload_len = ntohs(udph->len) - sizeof(struct udphdr);
+
+		if (payload_len >= (sizeof(uint64_t) * 2)) {
+			Rpc *rpc = (Rpc *)payload;
+
+			if (rpc->magic == 0x7777 || be64_to_cpu(rpc->magic) == 0x7777) {
+				uint64_t now_ns = rdtsc();
+				rpc->timestamp = cpu_to_be64(now_ns);
+				skb->ip_summed = CHECKSUM_UNNECESSARY;
+			}
+		}
+	}
+}
+
 static int igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 {
 	unsigned int total_bytes = 0, total_packets = 0;
@@ -9004,6 +9056,9 @@ static int igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 
 		/* populate checksum, timestamp, VLAN, and protocol */
 		igb_process_skb_fields(rx_ring, rx_desc, skb);
+
+		// igb_print_dump_skb(cpu, skb, adapter->netdev);
+		handle_rpc_timestamp(skb);
 
 		napi_gro_receive(&q_vector->napi, skb);
 
