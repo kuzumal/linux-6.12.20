@@ -127,6 +127,13 @@ EXPORT_PER_CPU_SYMBOL(cpu_thlet_stats);
 DEFINE_PER_CPU_SHARED_ALIGNED(struct thlet_stats_summary, cpu_thlet_stats_summary);
 EXPORT_PER_CPU_SYMBOL(cpu_thlet_stats_summary);
 
+DEFINE_PER_CPU_SHARED_ALIGNED(struct thlet_switch_stats, cpu_thlet_switch_stats);
+EXPORT_PER_CPU_SYMBOL(cpu_thlet_switch_stats);
+DEFINE_PER_CPU_SHARED_ALIGNED(struct thlet_switch_stats_sum, cpu_thlet_switch_stats_sum);
+EXPORT_PER_CPU_SYMBOL(cpu_thlet_switch_stats_sum);
+DEFINE_PER_CPU_SHARED_ALIGNED(bool, cpu_thlet_switch_start);
+EXPORT_PER_CPU_SYMBOL(cpu_thlet_switch_start);
+
 #ifdef CONFIG_SCHED_DEBUG
 /*
  * Debugging: various feature bits
@@ -5397,6 +5404,10 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
 		__this_cpu_write(cpu_thlet_stats.cs_mm, rdtsc());
 	}
+
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.cs_mm, rdtsc());
+	}
 	if (!next->mm) {                                // to kernel
 		enter_lazy_tlb(prev->active_mm, next);
 
@@ -5433,10 +5444,16 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
 		__this_cpu_write(cpu_thlet_stats.cs_reg, rdtsc());
 	}
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.cs_reg, rdtsc());
+	}
 	/* Here we just switch the register state and the stack. */
 	switch_to(prev, next, prev);
 	barrier();
 
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.cs_exit, rdtsc());
+	}
 	return finish_task_switch(prev);
 }
 
@@ -6698,6 +6715,11 @@ static void __sched notrace __schedule(int sched_mode)
 	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
 		__this_cpu_write(cpu_thlet_stats.sched_entry, rdtsc());
 	}
+
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.sched_entry, rdtsc());
+	}
+
 	struct task_struct *prev, *next;
 	/*
 	 * On PREEMPT_RT kernel, SM_RTLOCK_WAIT is noted
@@ -6760,6 +6782,11 @@ static void __sched notrace __schedule(int sched_mode)
 	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
 		__this_cpu_write(cpu_thlet_stats.pick_entry, rdtsc());
 	}
+	
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.pick_entry, rdtsc());
+	}
+
 	if (sched_mode == SM_IDLE) {
 		/* SCX must consult the BPF scheduler to tell if rq is empty */
 		if (!rq->nr_running && !scx_enabled()) {
@@ -6773,6 +6800,9 @@ static void __sched notrace __schedule(int sched_mode)
 
 	next = pick_next_task(rq, prev, &rf);
 picked:
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.pick_exit, rdtsc());
+	}
 	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
 		__this_cpu_write(cpu_thlet_stats.pick_exit, rdtsc());
 	}
@@ -6782,6 +6812,9 @@ picked:
 	rq->last_seen_need_resched_ns = 0;
 #endif
 
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.cs_entry, rdtsc());
+	}
 	if (likely(prev != next)) {
 		rq->nr_switches++;
 		/*
@@ -6826,6 +6859,26 @@ picked:
 		rq_unpin_lock(rq, &rf);
 		__balance_callbacks(rq);
 		raw_spin_rq_unlock_irq(rq);
+	}
+
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.sched_exit, rdtsc());
+		
+		__this_cpu_add(cpu_thlet_switch_stats_sum.sched, 
+			__this_cpu_read(cpu_thlet_switch_stats.sched_exit) - 
+			__this_cpu_read(cpu_thlet_switch_stats.sched_entry));
+		
+		__this_cpu_add(cpu_thlet_switch_stats_sum.cs, 
+			__this_cpu_read(cpu_thlet_switch_stats.sched_exit) - 
+			__this_cpu_read(cpu_thlet_switch_stats.cs_entry));
+		
+		__this_cpu_add(cpu_thlet_switch_stats_sum.cs_mm, 
+			__this_cpu_read(cpu_thlet_switch_stats.cs_reg) - 
+			__this_cpu_read(cpu_thlet_switch_stats.cs_mm));
+		
+		__this_cpu_add(cpu_thlet_switch_stats_sum.cs_reg,
+			__this_cpu_read(cpu_thlet_switch_stats.cs_exit) - 
+			__this_cpu_read(cpu_thlet_switch_stats.cs_reg));
 	}
 }
 

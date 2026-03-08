@@ -143,8 +143,31 @@ struct thlet_stats_summary {
 	struct thlet_stats pre[30];
 };
 
+struct thlet_switch_stats {
+	uint64_t sched_entry;
+	uint64_t pick_entry;
+	uint64_t pick_exit;
+	uint64_t cs_entry;
+	uint64_t cs_mm;
+	uint64_t cs_reg;
+	uint64_t cs_exit;
+	uint64_t sched_exit;
+};
+
+struct thlet_switch_stats_sum {
+	uint64_t pick;
+	uint64_t cs_mm;
+	uint64_t cs_reg;
+	uint64_t cs_exit;
+	uint64_t cs;
+	uint64_t sched;
+};
+
 DECLARE_PER_CPU(struct thlet_stats, cpu_thlet_stats);
 DECLARE_PER_CPU(struct thlet_stats_summary, cpu_thlet_stats_summary);
+DECLARE_PER_CPU(struct thlet_switch_stats, cpu_thlet_switch_stats);
+DECLARE_PER_CPU(struct thlet_switch_stats_sum, cpu_thlet_switch_stats_sum);
+DECLARE_PER_CPU(bool, cpu_thlet_switch_start);
 
 #include <linux/sched/ext.h>
 
