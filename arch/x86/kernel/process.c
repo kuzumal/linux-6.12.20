@@ -82,6 +82,8 @@ __visible DEFINE_PER_CPU_PAGE_ALIGNED(struct tss_struct, cpu_tss_rw) = {
 	 },
 };
 EXPORT_PER_CPU_SYMBOL(cpu_tss_rw);
+DEFINE_PER_CPU(u64, per_cpu_syscall_entry_time);
+EXPORT_PER_CPU_SYMBOL_GPL(per_cpu_syscall_entry_time);
 
 DEFINE_PER_CPU(bool, __tss_limit_invalid);
 EXPORT_PER_CPU_SYMBOL_GPL(__tss_limit_invalid);

@@ -806,6 +806,7 @@ static void update_rq_clock_task(struct rq *rq, s64 delta)
 void update_rq_clock(struct rq *rq)
 {
 	s64 delta;
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
 
 	lockdep_assert_rq_held(rq);
 
@@ -818,10 +819,12 @@ void update_rq_clock(struct rq *rq)
 	rq->clock_update_flags |= RQCF_UPDATED;
 #endif
 
+	update_thlet_stats(is_on_thlet, rq_read);
 	delta = sched_clock_cpu(cpu_of(rq)) - rq->clock;
 	if (delta < 0)
 		return;
 	rq->clock += delta;
+	update_thlet_stats(is_on_thlet, rq_update);
 	update_rq_clock_task(rq, delta);
 }
 
@@ -5146,14 +5149,23 @@ static inline void
 prepare_task_switch(struct rq *rq, struct task_struct *prev,
 		    struct task_struct *next)
 {
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
 	kcov_prepare_switch(prev);
+	update_thlet_stats(is_on_thlet, pre_kov);
 	sched_info_switch(rq, prev, next);
+	update_thlet_stats(is_on_thlet, pre_sched);
 	perf_event_task_sched_out(prev, next);
+	update_thlet_stats(is_on_thlet, pre_perf);
 	rseq_preempt(prev);
+	update_thlet_stats(is_on_thlet, pre_rseq);
 	fire_sched_out_preempt_notifiers(prev, next);
+	update_thlet_stats(is_on_thlet, pre_fire);
 	kmap_local_sched_out();
+	update_thlet_stats(is_on_thlet, pre_kmap);
 	prepare_task(next);
+	update_thlet_stats(is_on_thlet, pre_task);
 	prepare_arch_switch(next);
+	update_thlet_stats(is_on_thlet, pre_arch);
 }
 
 /**
@@ -5382,6 +5394,8 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
 		__this_cpu_write(cpu_thlet_stats.cs_entry, rdtsc());
 	}
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, cs_entry);
 	prepare_task_switch(rq, prev, next);
 
 	/*
@@ -5389,6 +5403,9 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 * combine the page table reload and the switch backend into
 	 * one hypercall.
 	 */
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.pre_arch_start, rdtsc());
+	}
 	arch_start_context_switch(prev);
 
 	/*
@@ -6079,6 +6096,8 @@ __pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
 	const struct sched_class *class;
 	struct task_struct *p;
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, fair_entry);
 
 	rq->dl_server = NULL;
 
@@ -6104,6 +6123,7 @@ __pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 			put_prev_set_next_task(rq, prev, p);
 		}
 
+		update_thlet_stats(is_on_thlet, fair_exit);
 		return p;
 	}
 
@@ -6113,12 +6133,14 @@ restart:
 	for_each_active_class(class) {
 		if (class->pick_next_task) {
 			p = class->pick_next_task(rq, prev);
+			update_thlet_stats(is_on_thlet, fair_exit);
 			if (p)
 				return p;
 		} else {
 			p = class->pick_task(rq);
 			if (p) {
 				put_prev_set_next_task(rq, prev, p);
+				update_thlet_stats(is_on_thlet, fair_exit);
 				return p;
 			}
 		}
@@ -6732,6 +6754,9 @@ static void __sched notrace __schedule(int sched_mode)
 	struct rq *rq;
 	int cpu;
 
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, sched_entry);
+
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
 	prev = rq->curr;
@@ -6742,7 +6767,9 @@ static void __sched notrace __schedule(int sched_mode)
 		hrtick_clear(rq);
 
 	local_irq_disable();
+	update_thlet_stats(is_on_thlet, rcu_entry);
 	rcu_note_context_switch(preempt);
+	update_thlet_stats(is_on_thlet, rcu_exit);
 
 	/*
 	 * Make sure that signal_pending_state()->signal_pending() below
@@ -6766,7 +6793,9 @@ static void __sched notrace __schedule(int sched_mode)
 
 	/* Promote REQ to ACT */
 	rq->clock_update_flags <<= 1;
+	update_thlet_stats(is_on_thlet, rq_clk_entry);
 	update_rq_clock(rq);
+	update_thlet_stats(is_on_thlet, rq_clk_exit);
 	rq->clock_update_flags = RQCF_UPDATED;
 
 	switch_count = &prev->nivcsw;
@@ -6847,11 +6876,15 @@ picked:
 		++*switch_count;
 
 		migrate_disable_switch(rq, prev);
+		update_thlet_stats(is_on_thlet, mig);
 		psi_account_irqtime(rq, prev, next);
+		update_thlet_stats(is_on_thlet, psi1);
 		psi_sched_switch(prev, next, !task_on_rq_queued(prev) ||
 					     prev->se.sched_delayed);
+		update_thlet_stats(is_on_thlet, psi2);
 
 		trace_sched_switch(preempt, prev, next, prev_state);
+		update_thlet_stats(is_on_thlet, trace);
 
 		/* Also unlocks the rq: */
 		rq = context_switch(rq, prev, next, &rf);

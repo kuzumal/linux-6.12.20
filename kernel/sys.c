@@ -224,6 +224,10 @@ out:
 	return error;
 }
 
+SYSCALL_DEFINE0(thletpf) {
+    return (long)raw_cpu_read(per_cpu_syscall_entry_time);
+}
+
 SYSCALL_DEFINE3(setpriority, int, which, int, who, int, niceval)
 {
 	struct task_struct *g, *p;

@@ -934,6 +934,9 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 		goto found;
 	}
 
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, eevdf_find);
+
 	/* Heap search for the EEVD entity */
 	while (node) {
 		struct rb_node *left = node->rb_left;
@@ -5667,6 +5670,7 @@ static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags);
 static struct sched_entity *
 pick_next_entity(struct rq *rq, struct cfs_rq *cfs_rq)
 {
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
 	/*
 	 * Picking the ->next buddy will affect latency but not fairness.
 	 */
@@ -5677,7 +5681,9 @@ pick_next_entity(struct rq *rq, struct cfs_rq *cfs_rq)
 		return cfs_rq->next;
 	}
 
+	update_thlet_stats(is_on_thlet, eevdf_entry);
 	struct sched_entity *se = pick_eevdf(cfs_rq);
+	update_thlet_stats(is_on_thlet, eevdf_exit);
 	if (se->sched_delayed) {
 		dequeue_entities(rq, se, DEQUEUE_SLEEP | DEQUEUE_DELAYED);
 		/*
@@ -8921,9 +8927,12 @@ static struct task_struct *pick_task_fair(struct rq *rq)
 {
 	struct sched_entity *se;
 	struct cfs_rq *cfs_rq;
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, _fair_entry);
 
 again:
 	cfs_rq = &rq->cfs;
+	update_thlet_stats(is_on_thlet, _fair_exit);
 	if (!cfs_rq->nr_running)
 		return NULL;
 
@@ -8941,6 +8950,7 @@ again:
 		cfs_rq = group_cfs_rq(se);
 	} while (cfs_rq);
 
+	update_thlet_stats(is_on_thlet, _fair_exit);
 	return task_of(se);
 }
 
@@ -8953,6 +8963,8 @@ pick_next_task_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf
 	struct sched_entity *se;
 	struct task_struct *p;
 	int new_tasks;
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, fair_task_entry);
 
 again:
 	p = pick_task_fair(rq);
@@ -8977,6 +8989,7 @@ again:
 	 * is a different task than we started out with, try and touch the
 	 * least amount of cfs_rqs.
 	 */
+	update_thlet_stats(is_on_thlet, lca_entry);
 	if (prev != p) {
 		struct sched_entity *pse = &prev->se;
 		struct cfs_rq *cfs_rq;
@@ -8985,10 +8998,12 @@ again:
 			int se_depth = se->depth;
 			int pse_depth = pse->depth;
 
+			update_thlet_stats(is_on_thlet, rb_put0);
 			if (se_depth <= pse_depth) {
 				put_prev_entity(cfs_rq_of(pse), pse);
 				pse = parent_entity(pse);
 			}
+			update_thlet_stats(is_on_thlet, rb_set0);
 			if (se_depth >= pse_depth) {
 				set_next_entity(cfs_rq_of(se), se);
 				se = parent_entity(se);
@@ -8996,19 +9011,25 @@ again:
 		}
 
 		put_prev_entity(cfs_rq, pse);
+		update_thlet_stats(is_on_thlet, rb_put);
 		set_next_entity(cfs_rq, se);
+		update_thlet_stats(is_on_thlet, rb_set);
 
 		__set_next_task_fair(rq, p, true);
 	}
+	update_thlet_stats(is_on_thlet, lca_exit);
 
+	update_thlet_stats(is_on_thlet, fair_task_exit);
 	return p;
 
 simple:
 #endif
 	put_prev_set_next_task(rq, prev, p);
+	update_thlet_stats(is_on_thlet, fair_task_exit);
 	return p;
 
 idle:
+	update_thlet_stats(is_on_thlet, fair_task_exit);
 	if (!rf)
 		return NULL;
 
@@ -9019,6 +9040,7 @@ idle:
 	 * possible for any higher priority task to appear. In that case we
 	 * must re-start the pick_next_entity() loop.
 	 */
+	update_thlet_stats(is_on_thlet, fair_task_exit);
 	if (new_tasks < 0)
 		return RETRY_TASK;
 
@@ -9031,6 +9053,7 @@ idle:
 	 */
 	update_idle_rq_clock_pelt(rq);
 
+	update_thlet_stats(is_on_thlet, fair_task_exit);
 	return NULL;
 }
 

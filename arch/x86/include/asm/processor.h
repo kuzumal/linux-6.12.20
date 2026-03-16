@@ -395,6 +395,7 @@ struct tss_struct {
 } __aligned(PAGE_SIZE);
 
 DECLARE_PER_CPU_PAGE_ALIGNED(struct tss_struct, cpu_tss_rw);
+DECLARE_PER_CPU_PAGE_ALIGNED(u64, per_cpu_syscall_entry_time);
 
 /* Per CPU interrupt stacks */
 struct irq_stack {
