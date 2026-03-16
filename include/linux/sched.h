@@ -152,6 +152,51 @@ struct thlet_switch_stats {
 	uint64_t cs_reg;
 	uint64_t cs_exit;
 	uint64_t sched_exit;
+	
+	// sched_prepare
+	uint64_t rcu_entry;
+	uint64_t rcu_exit;
+
+	uint64_t rq_clk_entry;
+	uint64_t rq_read;
+	uint64_t rq_update;
+	uint64_t rq_clk_exit;
+
+	// pick
+	uint64_t fair_entry;
+	uint64_t fair_exit;
+	uint64_t fair_task_entry;
+	uint64_t fair_task_exit;
+	uint64_t _fair_entry;
+	uint64_t _fair_exit;
+	uint64_t eevdf_entry;
+	uint64_t eevdf_exit;
+	uint64_t eevdf_find;
+	
+	uint64_t lca_entry;
+	uint64_t lca_exit;
+	uint64_t rb_put0;
+	uint64_t rb_set0;
+	uint64_t rb_put;
+	uint64_t rb_set;
+
+	// sched_after_pick
+	uint64_t mig;
+	uint64_t psi1;
+	uint64_t psi2;
+	uint64_t trace;
+
+	// cs_prepare
+	uint64_t pre_kov;
+	uint64_t pre_sched;
+	uint64_t pre_perf;
+	uint64_t pre_rseq;
+	uint64_t pre_fire;
+	uint64_t pre_kmap;
+	uint64_t pre_task;
+	uint64_t pre_arch;
+
+	uint64_t pre_arch_start;
 };
 
 struct thlet_switch_stats_sum {
@@ -168,6 +213,12 @@ DECLARE_PER_CPU(struct thlet_stats_summary, cpu_thlet_stats_summary);
 DECLARE_PER_CPU(struct thlet_switch_stats, cpu_thlet_switch_stats);
 DECLARE_PER_CPU(struct thlet_switch_stats_sum, cpu_thlet_switch_stats_sum);
 DECLARE_PER_CPU(bool, cpu_thlet_switch_start);
+
+#define update_thlet_stats(is_on_thlet, val) { { \
+	if (is_on_thlet) { \
+		this_cpu_write(cpu_thlet_switch_stats.val, rdtsc()); \
+	} \
+ } }
 
 #include <linux/sched/ext.h>
 

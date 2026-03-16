@@ -806,7 +806,7 @@ static void update_rq_clock_task(struct rq *rq, s64 delta)
 void update_rq_clock(struct rq *rq)
 {
 	s64 delta;
-
+	u64 is_on_thlet = this_cpu_read(cpu_thlet_switch_start);
 	lockdep_assert_rq_held(rq);
 
 	if (rq->clock_update_flags & RQCF_ACT_SKIP)
@@ -818,10 +818,12 @@ void update_rq_clock(struct rq *rq)
 	rq->clock_update_flags |= RQCF_UPDATED;
 #endif
 
+	update_thlet_stats(is_on_thlet, rq_read);
 	delta = sched_clock_cpu(cpu_of(rq)) - rq->clock;
 	if (delta < 0)
 		return;
 	rq->clock += delta;
+	update_thlet_stats(is_on_thlet, rq_update);
 	update_rq_clock_task(rq, delta);
 }
 
@@ -5146,14 +5148,23 @@ static inline void
 prepare_task_switch(struct rq *rq, struct task_struct *prev,
 		    struct task_struct *next)
 {
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
 	kcov_prepare_switch(prev);
+	update_thlet_stats(is_on_thlet, pre_kov);
 	sched_info_switch(rq, prev, next);
+	update_thlet_stats(is_on_thlet, pre_sched);
 	perf_event_task_sched_out(prev, next);
+	update_thlet_stats(is_on_thlet, pre_perf);
 	rseq_preempt(prev);
+	update_thlet_stats(is_on_thlet, pre_rseq);
 	fire_sched_out_preempt_notifiers(prev, next);
+	update_thlet_stats(is_on_thlet, pre_fire);
 	kmap_local_sched_out();
+	update_thlet_stats(is_on_thlet, pre_kmap);
 	prepare_task(next);
+	update_thlet_stats(is_on_thlet, pre_task);
 	prepare_arch_switch(next);
+	update_thlet_stats(is_on_thlet, pre_arch);
 }
 
 /**
@@ -5379,7 +5390,10 @@ static __always_inline struct rq *
 context_switch(struct rq *rq, struct task_struct *prev,
 	       struct task_struct *next, struct rq_flags *rf)
 {
-	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, cs_entry);
+
+	if (unlikely(__this_cpu_read(cpu_thlet_stats.state) == 6)) {
 		__this_cpu_write(cpu_thlet_stats.cs_entry, rdtsc());
 	}
 	prepare_task_switch(rq, prev, next);
@@ -5390,6 +5404,9 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 * one hypercall.
 	 */
 	arch_start_context_switch(prev);
+	if (__this_cpu_read(cpu_thlet_switch_start)) {
+		__this_cpu_write(cpu_thlet_switch_stats.pre_arch_start, rdtsc());
+	}
 
 	/*
 	 * kernel -> kernel   lazy + transfer active
@@ -5401,7 +5418,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 * switch_mm_cid() needs to be updated if the barriers provided
 	 * by context_switch() are modified.
 	 */
-	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+	if (unlikely(__this_cpu_read(cpu_thlet_stats.state) == 6)) {
 		__this_cpu_write(cpu_thlet_stats.cs_mm, rdtsc());
 	}
 
@@ -6079,7 +6096,8 @@ __pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
 	const struct sched_class *class;
 	struct task_struct *p;
-
+	uint64_t layer;
+	
 	rq->dl_server = NULL;
 
 	if (scx_enabled())
@@ -6113,8 +6131,9 @@ restart:
 	for_each_active_class(class) {
 		if (class->pick_next_task) {
 			p = class->pick_next_task(rq, prev);
-			if (p)
+			if (p) {
 				return p;
+			}
 		} else {
 			p = class->pick_task(rq);
 			if (p) {
@@ -6122,6 +6141,7 @@ restart:
 				return p;
 			}
 		}
+
 	}
 
 	BUG(); /* The idle class should always have a runnable task. */
@@ -6177,6 +6197,8 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 	int i, cpu, occ = 0;
 	struct rq *rq_i;
 	bool need_sync;
+	bool is_on_thlet = this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, fair_entry);
 
 	if (!sched_core_enabled(rq))
 		return __pick_next_task(rq, prev, rf);
@@ -6393,6 +6415,7 @@ out_set_next:
 	if (rq->core->core_forceidle_count && next == rq->idle)
 		queue_core_balance(rq);
 
+	update_thlet_stats(is_on_thlet, fair_exit);
 	return next;
 }
 
@@ -6716,9 +6739,8 @@ static void __sched notrace __schedule(int sched_mode)
 		__this_cpu_write(cpu_thlet_stats.sched_entry, rdtsc());
 	}
 
-	if (__this_cpu_read(cpu_thlet_switch_start)) {
-		__this_cpu_write(cpu_thlet_switch_stats.sched_entry, rdtsc());
-	}
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, sched_entry);
 
 	struct task_struct *prev, *next;
 	/*
@@ -6742,7 +6764,9 @@ static void __sched notrace __schedule(int sched_mode)
 		hrtick_clear(rq);
 
 	local_irq_disable();
+	update_thlet_stats(is_on_thlet, rcu_entry);
 	rcu_note_context_switch(preempt);
+	update_thlet_stats(is_on_thlet, rcu_exit);
 
 	/*
 	 * Make sure that signal_pending_state()->signal_pending() below
@@ -6766,7 +6790,9 @@ static void __sched notrace __schedule(int sched_mode)
 
 	/* Promote REQ to ACT */
 	rq->clock_update_flags <<= 1;
+	update_thlet_stats(is_on_thlet, rq_clk_entry);
 	update_rq_clock(rq);
+	update_thlet_stats(is_on_thlet, rq_clk_exit);
 	rq->clock_update_flags = RQCF_UPDATED;
 
 	switch_count = &prev->nivcsw;
@@ -6779,11 +6805,11 @@ static void __sched notrace __schedule(int sched_mode)
 	 * that we form a control dependency vs deactivate_task() below.
 	 */
 	prev_state = READ_ONCE(prev->__state);
-	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+	if (unlikely(__this_cpu_read(cpu_thlet_stats.state) == 6)) {
 		__this_cpu_write(cpu_thlet_stats.pick_entry, rdtsc());
 	}
 	
-	if (__this_cpu_read(cpu_thlet_switch_start)) {
+	if (__this_cpu_read(is_on_thlet)) {
 		__this_cpu_write(cpu_thlet_switch_stats.pick_entry, rdtsc());
 	}
 
@@ -6800,10 +6826,10 @@ static void __sched notrace __schedule(int sched_mode)
 
 	next = pick_next_task(rq, prev, &rf);
 picked:
-	if (__this_cpu_read(cpu_thlet_switch_start)) {
+	if (__this_cpu_read(is_on_thlet)) {
 		__this_cpu_write(cpu_thlet_switch_stats.pick_exit, rdtsc());
 	}
-	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
+	if (unlikely(__this_cpu_read(cpu_thlet_stats.state) == 6)) {
 		__this_cpu_write(cpu_thlet_stats.pick_exit, rdtsc());
 	}
 	clear_tsk_need_resched(prev);
@@ -6812,7 +6838,7 @@ picked:
 	rq->last_seen_need_resched_ns = 0;
 #endif
 
-	if (__this_cpu_read(cpu_thlet_switch_start)) {
+	if (__this_cpu_read(is_on_thlet)) {
 		__this_cpu_write(cpu_thlet_switch_stats.cs_entry, rdtsc());
 	}
 	if (likely(prev != next)) {
@@ -6846,11 +6872,15 @@ picked:
 		 */
 		++*switch_count;
 
+		update_thlet_stats(is_on_thlet, mig);
 		migrate_disable_switch(rq, prev);
+		update_thlet_stats(is_on_thlet, psi1);
 		psi_account_irqtime(rq, prev, next);
+		update_thlet_stats(is_on_thlet, psi2);
 		psi_sched_switch(prev, next, !task_on_rq_queued(prev) ||
 					     prev->se.sched_delayed);
 
+		update_thlet_stats(is_on_thlet, trace);
 		trace_sched_switch(preempt, prev, next, prev_state);
 
 		/* Also unlocks the rq: */

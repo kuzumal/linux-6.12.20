@@ -89,6 +89,7 @@ SYM_CODE_START(entry_SYSCALL_64)
 	ENDBR
 
 	swapgs
+
 	/* tss.sp2 is scratch space. */
 	movq	%rsp, PER_CPU_VAR(cpu_tss_rw + TSS_sp2)
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rsp
@@ -96,6 +97,16 @@ SYM_CODE_START(entry_SYSCALL_64)
 
 SYM_INNER_LABEL(entry_SYSCALL_64_safe_stack, SYM_L_GLOBAL)
 	ANNOTATE_NOENDBR
+
+	pushq    %rax
+	pushq    %rdx
+    rdtsc
+    
+    movl    %eax, PER_CPU_VAR(per_cpu_syscall_entry_time)
+    movl    %edx, PER_CPU_VAR(per_cpu_syscall_entry_time + 4)
+
+	popq	%rdx
+	popq 	%rax
 
 	/* Construct struct pt_regs on stack */
 	pushq	$__USER_DS				/* pt_regs->ss */
