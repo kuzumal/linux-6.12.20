@@ -2059,22 +2059,30 @@ void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
  */
 inline bool dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 {
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, deq_entry);
+
 	if (sched_core_enabled(rq))
 		sched_core_dequeue(rq, p, flags);
+	update_thlet_stats(is_on_thlet, deq_sched);
 
 	if (!(flags & DEQUEUE_NOCLOCK))
 		update_rq_clock(rq);
+	update_thlet_stats(is_on_thlet, deq_rq);
 
 	if (!(flags & DEQUEUE_SAVE))
 		sched_info_dequeue(rq, p);
+	update_thlet_stats(is_on_thlet, deq_psi);
 
 	psi_dequeue(p, flags);
+	update_thlet_stats(is_on_thlet, deq_ulc);
 
 	/*
 	 * Must be before ->dequeue_task() because ->dequeue_task() can 'fail'
 	 * and mark the task ->sched_delayed.
 	 */
 	uclamp_rq_dec(rq, p);
+	update_thlet_stats(is_on_thlet, deq_exit);
 	return p->sched_class->dequeue_task(rq, p, flags);
 }
 
@@ -5194,6 +5202,9 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	struct mm_struct *mm = rq->prev_mm;
 	unsigned int prev_state;
 
+	bool is_on_thlet = __this_cpu_read(cpu_thlet_switch_start);
+	update_thlet_stats(is_on_thlet, fin_entry);
+
 	/*
 	 * The previous task will have left us with a preempt_count of 2
 	 * because it left us after:
@@ -5211,6 +5222,7 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 		preempt_count_set(FORK_PREEMPT_COUNT);
 
 	rq->prev_mm = NULL;
+	update_thlet_stats(is_on_thlet, fin_preempt);
 
 	/*
 	 * A task struct has one reference for the use as "current".
@@ -5225,12 +5237,19 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	 */
 	prev_state = READ_ONCE(prev->__state);
 	vtime_task_switch(prev);
+	update_thlet_stats(is_on_thlet, fin_vtime);
 	perf_event_task_sched_in(prev, current);
+	update_thlet_stats(is_on_thlet, fin_perf);
 	finish_task(prev);
+	update_thlet_stats(is_on_thlet, fin_task);
 	tick_nohz_task_switch();
+	update_thlet_stats(is_on_thlet, fin_tick);
 	finish_lock_switch(rq);
+	update_thlet_stats(is_on_thlet, fin_lock);
 	finish_arch_post_lock_switch();
+	update_thlet_stats(is_on_thlet, fin_arch);
 	kcov_finish_switch(current);
+	update_thlet_stats(is_on_thlet, fin_kov);
 	/*
 	 * kmap_local_sched_out() is invoked with rq::lock held and
 	 * interrupts disabled. There is no requirement for that, but the
@@ -5239,8 +5258,10 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	 * disabled either.
 	 */
 	kmap_local_sched_in();
+	update_thlet_stats(is_on_thlet, fin_kmap);
 
 	fire_sched_in_preempt_notifiers(current);
+	update_thlet_stats(is_on_thlet, fin_fire);
 	/*
 	 * When switching through a kernel thread, the loop in
 	 * membarrier_{private,global}_expedited() may have observed that
@@ -5257,6 +5278,7 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 		membarrier_mm_sync_core_before_usermode(mm);
 		mmdrop_lazy_tlb_sched(mm);
 	}
+	update_thlet_stats(is_on_thlet, fin_mm);
 
 	if (unlikely(prev_state == TASK_DEAD)) {
 		if (prev->sched_class->task_dead)
@@ -5267,6 +5289,8 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 
 		put_task_struct_rcu_user(prev);
 	}
+
+	update_thlet_stats(is_on_thlet, fin_exit);
 
 	if (__this_cpu_read(cpu_thlet_stats.state) == 6) {
 		__this_cpu_write(cpu_thlet_stats.cs_exit, rdtsc());

@@ -162,6 +162,13 @@ struct thlet_switch_stats {
 	uint64_t rq_update;
 	uint64_t rq_clk_exit;
 
+	uint64_t deq_entry;
+	uint64_t deq_sched;
+	uint64_t deq_rq;
+	uint64_t deq_psi;
+	uint64_t deq_ulc;
+	uint64_t deq_exit;
+
 	// pick
 	uint64_t fair_entry;
 	uint64_t fair_exit;
@@ -197,6 +204,21 @@ struct thlet_switch_stats {
 	uint64_t pre_arch;
 
 	uint64_t pre_arch_start;
+
+	// finialize
+	uint64_t fin_entry;
+	uint64_t fin_preempt;
+	uint64_t fin_vtime;
+	uint64_t fin_perf;
+	uint64_t fin_task;
+	uint64_t fin_tick;
+	uint64_t fin_lock;
+	uint64_t fin_arch;
+	uint64_t fin_kov;
+	uint64_t fin_kmap;
+	uint64_t fin_fire;
+	uint64_t fin_mm;
+	uint64_t fin_exit;
 };
 
 struct thlet_switch_stats_sum {
